@@ -31,6 +31,18 @@ function App() {
       'received', 'amount credit', 'credit amount', 'income', 'incoming',
       'receipt', 'payment in', 'deposit amt', 'credit amt', 'amount cr',
       'receive', 'additions', 'incoming'
+    ],
+    payee: [
+      'payee', 'paid to', 'beneficiary', 'recipient', 'vendor', 'supplier',
+      'merchant name', 'to account', 'receiver'
+    ],
+    reference: [
+      'reference', 'ref', 'ref no', 'reference number', 'transaction ref',
+      'trans ref', 'payment ref', 'remittance'
+    ],
+    checkNumber: [
+      'check', 'cheque', 'check no', 'cheque no', 'check number', 'cheque number',
+      'chq', 'chq no', 'check #', 'cheque #'
     ]
   };
 
@@ -131,6 +143,9 @@ function App() {
           const description = selected.description !== undefined ? row[selected.description] : '';
           const debitStr = row[selected.debit];
           const creditStr = row[selected.credit];
+          const payee = selected.payee !== undefined ? row[selected.payee] : '';
+          const reference = selected.reference !== undefined ? row[selected.reference] : '';
+          const checkNumber = selected.checkNumber !== undefined ? row[selected.checkNumber] : '';
 
           if (!isValidDate(date)) {
             console.log('Invalid date:', date);
@@ -153,9 +168,12 @@ function App() {
 
           try {
             return {
-              Date: formatDate(date),
-              Description: description,
-              Amount: amount.toFixed(2)
+              "*Date": formatDate(date),
+              "Description": description,
+              "*Amount": amount.toFixed(2),
+              "Payee": payee,
+              "Reference": reference,
+              "Check Number": checkNumber
             };
           } catch (error) {
             console.error('Error processing row:', error);
@@ -374,14 +392,14 @@ function App() {
         }}>
           <h2 style={{ marginBottom: '15px' }}>Column Mapping</h2>
           <div style={{ display: 'grid', gap: '15px' }}>
-            {['date', 'description', 'debit', 'credit'].map(type => (
+            {['date', 'description', 'debit', 'credit', 'payee', 'reference', 'checkNumber'].map(type => (
               <div key={type}>
                 <label style={{ 
                   display: 'block', 
                   marginBottom: '5px',
                   fontWeight: 'bold'
                 }}>
-                  {type.charAt(0).toUpperCase() + type.slice(1)} Column
+                  {type === 'checkNumber' ? 'Check Number' : type.charAt(0).toUpperCase() + type.slice(1)} Column
                   {(type === 'date' || type === 'debit' || type === 'credit') && 
                     <span style={{ color: 'red' }}> *</span>
                   }
@@ -396,7 +414,7 @@ function App() {
                     border: '1px solid #ccc'
                   }}
                 >
-                  <option value="">Select {type} column</option>
+                  <option value="">Select {type === 'checkNumber' ? 'check number' : type} column</option>
                   {columnMapping.headers.map((header, index) => (
                     <option 
                       key={index} 
