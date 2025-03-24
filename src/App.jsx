@@ -28,6 +28,7 @@ function App() {
 
   const findPossibleColumns = (headers) => {
     const normalizedHeaders = headers.map(h => h.toLowerCase().trim());
+    console.log('Normalized headers:', normalizedHeaders);
     
     const matches = {};
     Object.entries(columnPatterns).forEach(([type, patterns]) => {
@@ -42,6 +43,7 @@ function App() {
         .filter(match => match.matchScore > 0);
     });
 
+    console.log('Found matches:', matches);
     return matches;
   };
 
@@ -50,11 +52,20 @@ function App() {
     if (!file) return;
 
     try {
+      console.log('File selected:', file.name);
       const text = await file.text();
-      const result = Papa.parse(text, { header: false });
+      console.log('File content start:', text.substring(0, 200));
+      
+      const result = Papa.parse(text, { 
+        header: false,
+        skipEmptyLines: true
+      });
+      
+      console.log('Parsed result:', result);
+      console.log('First row:', result.data[0]);
       
       const headers = result.data[0].map(h => h.trim()).filter(Boolean);
-      setHeaders(headers);
+      console.log('Processed headers:', headers);
 
       const possibleColumns = findPossibleColumns(headers);
       console.log('Possible column matches:', possibleColumns);
@@ -68,7 +79,8 @@ function App() {
       setCsvContent(result.data);
     } catch (error) {
       console.error('Error reading file:', error);
-      alert('Failed to read the file');
+      console.error('Error details:', error.message);
+      alert('Failed to read the file: ' + error.message);
     }
   };
 
