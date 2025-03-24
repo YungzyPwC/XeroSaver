@@ -10,19 +10,26 @@ function App() {
   const columnPatterns = {
     date: [
       'effective date', 'date', 'transaction date', 'post date', 'value date',
-      'processed date', 'time', 'dt', 'posting date', 'settlement date'
+      'processed date', 'time', 'dt', 'posting date', 'settlement date',
+      'trans date', 'transaction dt', 'date posted', 'tran date', 'process date'
     ],
     description: [
       'description', 'desc', 'narrative', 'details', 'transaction details',
-      'particulars', 'memo', 'notes', 'reference', 'transaction', 'payee'
+      'particulars', 'memo', 'notes', 'reference', 'transaction', 'payee',
+      'narration', 'text', 'tran desc', 'payment details', 'name', 'merchant',
+      'transaction description', 'trans desc', 'details', 'particular'
     ],
     debit: [
       'debit', 'debits', 'dr', 'withdrawal', 'withdrawals', 'payment',
-      'payments', 'paid out', 'amount debit', 'debit amount', 'spend'
+      'payments', 'paid out', 'amount debit', 'debit amount', 'spend',
+      'expense', 'payment out', 'withdrawl', 'debit amt', 'amount dr',
+      'paid', 'withdraw', 'deductions', 'outgoing'
     ],
     credit: [
       'credit', 'credits', 'cr', 'deposit', 'deposits', 'payment in',
-      'received', 'amount credit', 'credit amount', 'income'
+      'received', 'amount credit', 'credit amount', 'income', 'incoming',
+      'receipt', 'payment in', 'deposit amt', 'credit amt', 'amount cr',
+      'receive', 'additions', 'incoming'
     ]
   };
 
@@ -37,7 +44,8 @@ function App() {
           index,
           header,
           matchScore: patterns.some(pattern => 
-            normalizedHeaders[index].includes(pattern)
+            normalizedHeaders[index].includes(pattern) || 
+            pattern.includes(normalizedHeaders[index])
           ) ? 1 : 0
         }))
         .filter(match => match.matchScore > 0);
@@ -52,23 +60,28 @@ function App() {
     if (!file) return;
 
     try {
-      console.log('File selected:', file.name);
       const text = await file.text();
-      console.log('File content start:', text.substring(0, 200));
-      
       const result = Papa.parse(text, { 
         header: false,
-        skipEmptyLines: true
+        skipEmptyLines: true 
       });
+
+      let headerRowIndex = result.data.findIndex(row => {
+        const rowText = row.join(' ').toLowerCase();
+        return rowText.includes('debit') && rowText.includes('credit');
+      });
+
+      if (headerRowIndex === -1) {
+        throw new Error('Could not find transaction headers. Please check your CSV format.');
+      }
+
+      const headers = result.data[headerRowIndex]
+        .map(h => h.trim())
+        .filter(h => h.length > 0);
       
-      console.log('Parsed result:', result);
-      console.log('First row:', result.data[0]);
-      
-      const headers = result.data[0].map(h => h.trim()).filter(Boolean);
-      console.log('Processed headers:', headers);
+      setHeaders(headers);
 
       const possibleColumns = findPossibleColumns(headers);
-      console.log('Possible column matches:', possibleColumns);
 
       setColumnMapping({
         headers,
@@ -76,10 +89,9 @@ function App() {
         selected: {}
       });
 
-      setCsvContent(result.data);
+      setCsvContent(result.data.slice(headerRowIndex));
     } catch (error) {
       console.error('Error reading file:', error);
-      console.error('Error details:', error.message);
       alert('Failed to read the file: ' + error.message);
     }
   };
@@ -100,45 +112,46 @@ function App() {
     try {
       const { selected } = columnMapping;
 
-      // Validate required columns
       const missingFields = [];
-      if (selected.date === undefined || selected.date === null || selected.date === '') {
-        missingFields.push('Date');
-      }
-      if (selected.debit === undefined || selected.debit === null || selected.debit === '') {
-        missingFields.push('Debit');
-      }
-      if (selected.credit === undefined || selected.credit === null || selected.credit === '') {
-        missingFields.push('Credit');
-      }
+      if (selected.date === undefined) missingFields.push('Date');
+      if (selected.debit === undefined) missingFields.push('Debit');
+      if (selected.credit === undefined) missingFields.push('Credit');
 
       if (missingFields.length > 0) {
         throw new Error(`Please select the following required columns: ${missingFields.join(', ')}`);
       }
 
-      // Convert to Xero format
       const xeroData = csvContent.slice(1)
-        .filter(row => {
-          if (row.length <= Math.max(selected.date, selected.debit, selected.credit)) {
-            return false;
-          }
-          return true;
-        })
+        .filter(row => row.length > Math.max(selected.date, selected.debit, selected.credit))
         .map(row => {
           const date = row[selected.date];
           const description = selected.description !== undefined ? row[selected.description] : '';
-          const debit = parseAmount(row[selected.debit]);
-          const credit = parseAmount(row[selected.credit]);
+          const debitStr = row[selected.debit];
+          const creditStr = row[selected.credit];
 
           if (!isValidDate(date)) return null;
-          if (!debit && !credit) return null;
 
-          const amount = debit ? `-${debit}` : credit;
+          // Parse amounts, removing currency symbols and commas
+          const debit = parseFloat(parseAmount(debitStr)) || 0;
+          const credit = parseFloat(parseAmount(creditStr)) || 0;
+
+          // Skip rows with no transaction amount
+          if (debit === 0 && credit === 0) return null;
+
+          // Calculate final amount (credit positive, debit negative)
+          let amount;
+          if (debit > 0) {
+            amount = -debit; // Make debits negative
+          } else if (credit > 0) {
+            amount = credit; // Keep credits positive
+          } else {
+            return null;
+          }
 
           return {
             Date: formatDate(date),
             Description: description,
-            Amount: amount
+            Amount: amount.toFixed(2) // Ensure 2 decimal places
           };
         })
         .filter(Boolean);
@@ -147,7 +160,6 @@ function App() {
         throw new Error('No valid transactions found in the file');
       }
 
-      // Convert to CSV and download
       const csv = Papa.unparse(xeroData);
       downloadCSV(csv);
     } catch (error) {
@@ -156,19 +168,36 @@ function App() {
   };
 
   const parseAmount = (value) => {
-    if (!value) return '';
-    const cleaned = value.toString().replace(/[^0-9.-]/g, '');
-    return cleaned || '0';
+    if (!value) return '0';
+    return value.toString()
+      .replace(/[^0-9.-]/g, '')
+      .replace(/^\./, '0.')
+      .replace(/^(-?)0+(\d)/, '$1$2') || '0';
   };
 
   const isValidDate = (date) => {
     if (!date) return false;
-    const parsed = new Date(date);
-    return !isNaN(parsed.getTime());
+    const formats = [
+      new Date(date),
+      new Date(date.replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1')),
+      new Date(date.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
+    ];
+    
+    return formats.some(d => !isNaN(d.getTime()));
   };
 
   const formatDate = (date) => {
-    const parsed = new Date(date);
+    let parsed;
+    if (date.includes('/')) {
+      const [day, month, year] = date.split('/');
+      parsed = new Date(year, month - 1, day);
+    } else if (date.includes('-')) {
+      const [day, month, year] = date.split('-');
+      parsed = new Date(year, month - 1, day);
+    } else {
+      parsed = new Date(date);
+    }
+    
     return parsed.toISOString().split('T')[0];
   };
 
