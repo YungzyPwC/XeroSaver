@@ -6,6 +6,7 @@ function App() {
   const [csvContent, setCsvContent] = useState(null);
   const [columnMapping, setColumnMapping] = useState(null);
   const [headers, setHeaders] = useState(null);
+  const [error, setError] = useState(null);
 
   const columnPatterns = {
     date: [
@@ -58,6 +59,7 @@ function App() {
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setError(null);
 
     try {
       const text = await file.text();
@@ -92,7 +94,7 @@ function App() {
       setCsvContent(result.data.slice(headerRowIndex));
     } catch (error) {
       console.error('Error reading file:', error);
-      alert('Failed to read the file: ' + error.message);
+      setError('Failed to read the file: ' + error.message);
     }
   };
 
@@ -108,6 +110,7 @@ function App() {
 
   const processFile = () => {
     if (!csvContent || !columnMapping) return;
+    setError(null);
 
     try {
       const { selected } = columnMapping;
@@ -129,76 +132,153 @@ function App() {
           const debitStr = row[selected.debit];
           const creditStr = row[selected.credit];
 
-          if (!isValidDate(date)) return null;
+          if (!isValidDate(date)) {
+            console.log('Invalid date:', date);
+            return null;
+          }
 
-          // Parse amounts, removing currency symbols and commas
           const debit = parseFloat(parseAmount(debitStr)) || 0;
           const credit = parseFloat(parseAmount(creditStr)) || 0;
 
-          // Skip rows with no transaction amount
           if (debit === 0 && credit === 0) return null;
 
-          // Calculate final amount (credit positive, debit negative)
           let amount;
           if (debit > 0) {
-            amount = -debit; // Make debits negative
+            amount = -debit;
           } else if (credit > 0) {
-            amount = credit; // Keep credits positive
+            amount = credit;
           } else {
             return null;
           }
 
-          return {
-            Date: formatDate(date),
-            Description: description,
-            Amount: amount.toFixed(2) // Ensure 2 decimal places
-          };
+          try {
+            return {
+              Date: formatDate(date),
+              Description: description,
+              Amount: amount.toFixed(2)
+            };
+          } catch (error) {
+            console.error('Error processing row:', error);
+            return null;
+          }
         })
         .filter(Boolean);
 
       if (xeroData.length === 0) {
-        throw new Error('No valid transactions found in the file');
+        throw new Error('No valid transactions found in the file. Check if dates and amounts are present.');
       }
 
       const csv = Papa.unparse(xeroData);
       downloadCSV(csv);
     } catch (error) {
-      alert(error.message);
+      console.error('Processing error:', error);
+      setError(error.message);
     }
   };
 
   const parseAmount = (value) => {
     if (!value) return '0';
+    // Handle both comma and period as decimal separators
     return value.toString()
-      .replace(/[^0-9.-]/g, '')
-      .replace(/^\./, '0.')
-      .replace(/^(-?)0+(\d)/, '$1$2') || '0';
+      .replace(/[^\d,.-]/g, '')  // Remove everything except digits, dots, commas and minus
+      .replace(/,/g, '.')        // Replace commas with dots
+      .replace(/\.(?=.*\.)/g, '') // Remove all dots except the last one
+      .replace(/^\./, '0.')      // Add leading zero to decimal numbers
+      .replace(/^(-?)0+(\d)/, '$1$2') || '0'; // Remove leading zeros but keep negative sign
   };
 
   const isValidDate = (date) => {
     if (!date) return false;
-    const formats = [
-      new Date(date),
-      new Date(date.replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1')),
-      new Date(date.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
-    ];
     
-    return formats.some(d => !isNaN(d.getTime()));
+    try {
+      const cleanDate = date.toString().trim();
+      
+      // Handle month names (e.g., "31-Jul-23" or "31-July-2023")
+      const monthNames = {
+        jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+      };
+      
+      // Match "DD-MMM-YY" or "DD-MMM-YYYY"
+      const monthNameRegex = /^(\d{1,2})[\-\s]([A-Za-z]{3,})[\-\s](\d{2}|\d{4})$/;
+      if (monthNameRegex.test(cleanDate)) {
+        const [_, day, monthStr, year] = cleanDate.match(monthNameRegex);
+        const month = monthNames[monthStr.toLowerCase().substring(0, 3)];
+        if (month !== undefined) {
+          const fullYear = year.length === 2 ? '20' + year : year;
+          const parsed = new Date(fullYear, month, day);
+          return !isNaN(parsed.getTime());
+        }
+      }
+      
+      // Handle DD/MM/YYYY or DD-MM-YYYY
+      if (cleanDate.includes('/') || cleanDate.includes('-')) {
+        const parts = cleanDate.split(/[\/\-]/);
+        if (parts.length === 3) {
+          const [day, month, year] = parts;
+          const fullYear = year.length === 2 ? '20' + year : year;
+          const parsed = new Date(fullYear, month - 1, day);
+          return !isNaN(parsed.getTime());
+        }
+      }
+      
+      // Try standard date parsing as last resort
+      const parsed = new Date(cleanDate);
+      return !isNaN(parsed.getTime());
+    } catch (error) {
+      console.log('Date validation error:', error);
+      return false;
+    }
   };
 
   const formatDate = (date) => {
-    let parsed;
-    if (date.includes('/')) {
-      const [day, month, year] = date.split('/');
-      parsed = new Date(year, month - 1, day);
-    } else if (date.includes('-')) {
-      const [day, month, year] = date.split('-');
-      parsed = new Date(year, month - 1, day);
-    } else {
-      parsed = new Date(date);
+    try {
+      const cleanDate = date.toString().trim();
+      let parsed;
+
+      // Handle month names (e.g., "31-Jul-23" or "31-July-2023")
+      const monthNames = {
+        jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+      };
+      
+      const monthNameRegex = /^(\d{1,2})[\-\s]([A-Za-z]{3,})[\-\s](\d{2}|\d{4})$/;
+      if (monthNameRegex.test(cleanDate)) {
+        const [_, day, monthStr, year] = cleanDate.match(monthNameRegex);
+        const month = monthNames[monthStr.toLowerCase().substring(0, 3)];
+        if (month !== undefined) {
+          const fullYear = year.length === 2 ? '20' + year : year;
+          parsed = new Date(fullYear, month, day);
+        }
+      }
+      // Handle DD/MM/YYYY or DD-MM-YYYY
+      else if (cleanDate.includes('/') || cleanDate.includes('-')) {
+        const parts = cleanDate.split(/[\/\-]/);
+        if (parts.length === 3) {
+          const [day, month, year] = parts;
+          const fullYear = year.length === 2 ? '20' + year : year;
+          parsed = new Date(fullYear, month - 1, day);
+        }
+      }
+      // Try standard date parsing
+      else {
+        parsed = new Date(cleanDate);
+      }
+      
+      if (isNaN(parsed.getTime())) {
+        throw new Error('Invalid date');
+      }
+      
+      // Format as YYYY-MM-DD
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, '0');
+      const day = String(parsed.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+      
+    } catch (error) {
+      console.error('Date formatting error:', error, 'for date:', date);
+      throw new Error(`Invalid date format: ${date}`);
     }
-    
-    return parsed.toISOString().split('T')[0];
   };
 
   const downloadCSV = (csv) => {
@@ -216,6 +296,43 @@ function App() {
   return (
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
       <h1 style={{ marginBottom: '20px' }}>Bank Statement to Xero Converter</h1>
+      
+      <div style={{ 
+        backgroundColor: '#f8f9fa',
+        padding: '20px',
+        borderRadius: '8px',
+        marginBottom: '20px'
+      }}>
+        <h3 style={{ marginBottom: '10px' }}>How to Use:</h3>
+        <ol style={{ 
+          paddingLeft: '20px',
+          margin: '0',
+          lineHeight: '1.5'
+        }}>
+          <li>Upload your bank statement CSV file</li>
+          <li>Match the columns from your statement to the required fields</li>
+          <li>Click "Convert to Xero Format" to download the converted file</li>
+        </ol>
+        <p style={{ 
+          marginTop: '10px',
+          fontSize: '0.9em',
+          color: '#666'
+        }}>
+          Note: The converter will format debits as negative amounts and credits as positive amounts in the final file.
+        </p>
+      </div>
+
+      {error && (
+        <div style={{
+          backgroundColor: '#fee',
+          color: '#c00',
+          padding: '10px',
+          borderRadius: '4px',
+          marginBottom: '20px'
+        }}>
+          {error}
+        </div>
+      )}
       
       <div style={{ 
         border: '2px dashed #ccc', 
