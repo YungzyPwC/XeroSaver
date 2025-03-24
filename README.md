@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Bank Statement to Xero Converter
 
 A web-based tool to convert bank statement CSV files into Xero-compatible format.
@@ -36,3 +37,7 @@ npm run build
 ## Support
 
 For support, please contact [YOUR-CONTACT-INFO]
+=======
+# XeroSaver
+A simple but effective web tool that converts bank statements/feeds into a Xero-compatible format.
+>>>>>>> 2c8b9e9b10ac494008941bbd69e2a53b946e445b
